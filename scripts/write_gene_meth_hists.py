@@ -15,7 +15,6 @@ class Gene:
 		self.coords = []
 		self.coords.append(GenePos(start, end))
 
-
 	def __lt__(self, other):
 		if self.chrom < other.chrom:
 			return True
@@ -34,7 +33,7 @@ class Gene:
 	def appendCoords(self, start, end):
 		self.coords.append(GenePos(start, end))
 
-	def getBin(self, pos, n):
+	def getBinRange(self, pos, numBins, binSize):
 		genePos = 0
 		length = 0
 		for coord in self.coords:
@@ -44,29 +43,35 @@ class Gene:
 			elif pos > coord.end:
 				genePos += interval
 			length += interval
-		return int(n * float(genePos)/length)
+		if self.strand == "+":
+			lastBin = int(numBins * float(genePos)/length)
+			firstBin = max(lastBin - binSize, 0)
+		else:
+			firstBin = numBins - int(numBins * float(genePos)/length) - 1
+			lastBin = min(firstBin + binSize, numBins - 1)
+		return firstBin, lastBin
 
 numBins = 100
 binSize = 10
-methycallFilename = "../new_analysis/LSK109/CpG_5mC_counts_all.methylCall"
 
 geneNames = []
 genes = dict()
 
 try:
-	opts, args = getopt.getopt(sys.argv[1:],"hg:f:n:m:")
+	opts, args = getopt.getopt(sys.argv[1:],"hg:f:n:m:o:")
 except getopt.GetoptError:
 	print("Option not recognised.")
-	print("python write_gene_meth_hists.py -g <gene_list.txt> -f <gene_sites.fasta> -n <bin_size> -m <methylation file>")
+	print("python write_gene_meth_hists.py -g <gene_list.txt> -f <gene_sites.fasta> -n <bin_size> -m <methylation file> -o <output filename>")
 	print("python write_gene_meth_hists.py -h for further usage instructions.")
 	sys.exit(2)
 for opt, arg in opts:
 	if opt == "-h":
-		print("python write_gene_meth_hists.py -g <gene_list.txt> -f <gene_sites.fasta> - n <bin_size>")
+		print("python write_gene_meth_hists.py -g <gene_list.txt> -f <gene_sites.fasta> - n <bin_size> -m <methylation file> -o <output filename>")
 		print("-g <gene_list.txt>\t\t List of genes")
 		print("-f <gene_sites.fasta>\t\t Fasta file of gene sites")
 		print("-n <bin_size>\t\t Size of overlapping bins (%) for histogram")
 		print("-m <methylation file>\t\t File containing methylation calls")
+		print("-o <output filename>\t\t Name of output file for hist")
 		sys.exit()
 	elif opt in ("-g"):
 		geneListFilename = arg
@@ -76,7 +81,8 @@ for opt, arg in opts:
 		binSize = int(arg)
 	elif opt in ("-m"):
 		methycallFilename = arg
-
+	elif opt in ("-o"):
+		outputFilename = arg
 
 methylatedFreqBins = [.0] * numBins
 totalSites = [0] * numBins
@@ -145,20 +151,23 @@ with open(methycallFilename, 'r') as infile:
 			geneEnd = gene.coords[-1].end
 			while pos < geneStart or strand != gene.strand or key != chrom:
 				line = infile.readline()
-				fields = line.split()
-				pos = int(fields[1])
-				strand = fields[2]
-				chrom = int(fields[0])
+				if line:
+					fields = line.split()
+					pos = int(fields[1])
+					strand = fields[2]
+					chrom = int(fields[0])
+				else:
+					break
 
 			while pos < geneEnd and strand == gene.strand and key == chrom:
 				for coord in gene.coords:
 					if pos >= coord.start and pos <= coord.end:
 						methylatedFreq = float(fields[7])
-						lastBin = gene.getBin(pos, numBins)
-						firstBin = max(lastBin - binSize, 0)
+						firstBin, lastBin = gene.getBinRange(pos, numBins, binSize)
 						for i in range(firstBin, lastBin + 1):
 							methylatedFreqBins[i] += methylatedFreq
 							totalSites[i] += 1
+
 
 				line = infile.readline()
 				fields = line.split()
@@ -166,20 +175,12 @@ with open(methycallFilename, 'r') as infile:
 				strand = fields[2]
 				chrom = int(fields[0])
 
-
-for b in range(numBins):
-	if totalSites[b] > 0:
-		print(str(b) + "\t" + str(methylatedFreqBins[b]/totalSites[b]))
-	else:
-		print("0\t0")
-
-
-
-
-
-
-
-
+with open(outputFilename, 'w') as outfile:
+	for b in range(numBins):
+		if totalSites[b] > 0:
+			outfile.write(str(b) + "\t" + str(methylatedFreqBins[b]/totalSites[b]) + "\n")
+		else:
+			outfile.write("0\t0\n")
 
 
 
